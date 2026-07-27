@@ -1,0 +1,20 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Database
+app.db
+
+# Models
+fine_tuned_model_v3/
+fine_tuned_multilingual_model_v2/
+fine_tuned_multilingual_model_v7/
+*.safetensors
+
+# VS Code
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
