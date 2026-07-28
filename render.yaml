@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: freetext-industrial-code
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn -k uvicorn.workers.UvicornWorker api:api
