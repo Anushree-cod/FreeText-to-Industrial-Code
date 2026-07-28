@@ -29,12 +29,10 @@ except ImportError:
 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-local_model = os.path.join(BASE_DIR, "fine_tuned_model_v3")
-
-if os.path.exists(local_model):
-    MODEL_PATH = local_model
-else:
-    MODEL_PATH = "hermoine1234/fine_tuned_model_v3"
+MODEL_PATH = os.getenv(
+    "MODEL_NAME",
+    "hermoine1234/fine_tuned_model_v3"
+)
 
 DB_PATH = os.path.join(BASE_DIR, "app.db")
 
@@ -88,7 +86,7 @@ def load_model(path):
 
 
 print("Loading SentenceTransformer model...")
-model = load_model(MODEL_PATH)
+model = SentenceTransformer(MODEL_PATH)
 print("Model loaded successfully.")
 
 
