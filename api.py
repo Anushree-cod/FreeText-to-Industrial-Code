@@ -29,16 +29,18 @@ except ImportError:
 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-MODEL_PATH = "fine_tuned_model_v3"
-if not os.path.exists(MODEL_PATH):
-    MODEL_PATH = r"C:\Users\A\Downloads\EDI Project\fine_tuned_model_v3"
+local_model = os.path.join(BASE_DIR, "fine_tuned_model_v3")
+
+if os.path.exists(local_model):
+    MODEL_PATH = local_model
+else:
+    MODEL_PATH = "hermoine1234/fine_tuned_model_v3"
 
 DB_PATH = os.path.join(BASE_DIR, "app.db")
 
 # SerpAPI Key - You can set it here directly or use environment variable
 # Option 1: Set it directly here (for development/testing)
-SERPAPI_KEY_DIRECT = "585cdf387ef24ee1618a590044485a6cc823c9f2acbfda7ce4c683a320385fe8"  # Put your API key here, e.g., "your_api_key_here"
-
+SERPAPI_KEY_DIRECT = None
 # Option 2: Use environment variable (recommended for production)
 # Set with: $env:SERPAPI_KEY="your_key" (PowerShell) or export SERPAPI_KEY="your_key" (Linux/Mac)
 
@@ -85,7 +87,9 @@ def load_model(path):
     return SentenceTransformer(path)
 
 
+print("Loading SentenceTransformer model...")
 model = load_model(MODEL_PATH)
+print("Model loaded successfully.")
 
 
 def load_codes(path="combined_codes.csv"):
@@ -99,15 +103,15 @@ def load_codes(path="combined_codes.csv"):
     return df.reset_index(drop=True)
 
 
-codes_df = load_codes()
+codes_df = load_codes(os.path.join(BASE_DIR, "combined_codes.csv"))
 
 
 def compute_embeddings(texts):
     return model.encode(texts, convert_to_tensor=True)
 
-
+print("Computing corpus embeddings...")
 corpus_embeddings = compute_embeddings(codes_df["text"].tolist())
-
+print("Corpus embeddings computed successfully.")
 
 def extract_keywords(text, top_n=10):
     if not isinstance(text, str):
@@ -300,24 +304,22 @@ def on_startup():
 def fetch_sector_news(sector_title: str, sector_code: str, max_results: int = 5):
     """
     Fetch recent news articles about the industrial sector using SerpAPI.
-    Returns a list of news items with title, snippet, link, and date.
+    Returns a list of news items with title, snippet, link, source, and date.
     """
     if not SERPAPI_AVAILABLE:
         print("SerpAPI: Package not installed. Install with: pip install google-search-results")
         return None
-    
-    # Try to get API key from direct setting first, then environment variable
-    serpapi_key = SERPAPI_KEY_DIRECT if SERPAPI_KEY_DIRECT else os.getenv("SERPAPI_KEY")
+
+    serpapi_key = os.getenv("SERPAPI_KEY")
     if not serpapi_key:
-        print("SerpAPI: API key not found. Set SERPAPI_KEY_DIRECT in api.py or set SERPAPI_KEY environment variable")
+        print("SerpAPI: API key not found. Set SERPAPI_KEY environment variable")
         return None
-    
+
     try:
         # Build search query - focus on recent news (last 24 hours)
-        # Use both the sector title and code for better results
         search_query = f"{sector_title} industrial sector news"
         print(f"SerpAPI: Searching for: {search_query}")
-        
+
         # Use Google News search via SerpAPI
         params = {
             "engine": "google",
@@ -327,16 +329,15 @@ def fetch_sector_news(sector_title: str, sector_code: str, max_results: int = 5)
             "num": max_results,
             "tbs": "qdr:d",  # Past 24 hours
         }
-        
+
         search = GoogleSearch(params)
         results = search.get_dict()
-        
-        # Debug: print what we got
+
         print(f"SerpAPI: Response keys: {list(results.keys())}")
         if "error" in results:
             print(f"SerpAPI Error: {results.get('error')}")
             return None
-        
+
         news_items = []
         if "news_results" in results and results["news_results"]:
             for item in results["news_results"][:max_results]:
@@ -350,9 +351,9 @@ def fetch_sector_news(sector_title: str, sector_code: str, max_results: int = 5)
             print(f"SerpAPI: Found {len(news_items)} news items")
         else:
             print("SerpAPI: No news_results in response")
-        
+
         return news_items if news_items else None
-    
+
     except Exception as e:
         # Fail gracefully - return None if SerpAPI fails
         print(f"SerpAPI error: {type(e).__name__}: {e}")
