@@ -161,36 +161,56 @@ def confidence_to_percentage(sim_score):
     return max(0, min(100, pct))
 
 
-def select_top_codes_with_nic(indices, scores, total=5, min_nic=2):
+def _code_source(idx: int) -> str:
+    return str(codes_df.iloc[idx].get("Source", "")).strip().upper()
+
+
+def select_balanced_top_codes(
+    indices,
+    scores,
+    total: int = 5,
+    min_nic: int = 2,
+    min_naics: int = 2,
+):
     """
-    From ranked indices/scores, pick up to `total` codes ensuring at least
-    `min_nic` of them have Source == 'NIC' when available.
-    Order is preserved from the original ranking.
+    Pick up to `total` codes from a ranked list, requiring at least
+    `min_nic` NIC and `min_naics` NAICS when enough of each exist.
+    Final list is sorted by similarity (highest first).
     """
-    # pair indices with scores in order
     pairs = [(int(i), float(s)) for i, s in zip(indices, scores)]
 
+    nic_pool = [(i, s) for i, s in pairs if _code_source(i) == "NIC"]
+    naics_pool = [(i, s) for i, s in pairs if _code_source(i) == "NAICS"]
+
     selected = []
-    selected_nic = 0
+    selected_ids: set[int] = set()
 
-    # First pass: prioritize NIC codes
-    for idx, s in pairs:
+    def take_from(pool, count):
+        added = 0
+        for i, s in pool:
+            if added >= count:
+                break
+            if i in selected_ids:
+                continue
+            selected.append((i, s))
+            selected_ids.add(i)
+            added += 1
+
+    # Guarantee quotas first (as many as available, up to the minima)
+    take_from(nic_pool, min_nic)
+    take_from(naics_pool, min_naics)
+
+    # Fill remaining slots from the overall ranking
+    for i, s in pairs:
         if len(selected) >= total:
             break
-        source = str(codes_df.iloc[idx].get("Source", ""))
-        if source == "NIC":
-            selected.append((idx, s))
-            selected_nic += 1
-
-    # Second pass: fill remaining slots with best remaining codes
-    for idx, s in pairs:
-        if len(selected) >= total:
-            break
-        if any(idx == existing_idx for existing_idx, _ in selected):
+        if i in selected_ids:
             continue
-        selected.append((idx, s))
+        selected.append((i, s))
+        selected_ids.add(i)
 
-    return selected
+    selected.sort(key=lambda item: item[1], reverse=True)
+    return selected[:total]
 
 
 def filter_indices_by_system(indices, scores, system: str):
@@ -264,6 +284,11 @@ api.mount(
     "/static",
     StaticFiles(directory=os.path.join(BASE_DIR, "static")),
     name="static",
+)
+api.mount(
+    "/image",
+    StaticFiles(directory=os.path.join(BASE_DIR, "image")),
+    name="image",
 )
 
 
@@ -395,22 +420,27 @@ def classify(req: ClassifyRequest):
         indices = topk.indices.tolist()
         scores = [float(s) for s in topk.values.tolist()]
 
-    top_idx = int(indices[0])
-    top_score = scores[0]
+    # build top-5 list depending on requested system
+    if system == "both":
+        # Always include at least 2 NIC and 2 NAICS when available
+        selected_pairs = select_balanced_top_codes(
+            indices, scores, total=5, min_nic=2, min_naics=2
+        )
+    else:
+        # NIC-only or NAICS-only: just take top 5 from filtered list
+        selected_pairs = [(int(i), float(s)) for i, s in zip(indices[:5], scores[:5])]
+
+    if not selected_pairs:
+        selected_pairs = [(int(indices[0]), float(scores[0]))]
+
+    # Primary match = highest-scoring code in the final balanced set
+    top_idx, top_score = selected_pairs[0]
     top_code = codes_df.iloc[top_idx]["Code"]
     top_title = codes_df.iloc[top_idx]["Title"]
     top_desc = codes_df.iloc[top_idx]["clean_desc"]
     pct = confidence_to_percentage(top_score)
 
     rationale, overlap, neighbors = build_rationale(translated, top_idx, top_score)
-
-    # build top-5 list depending on requested system
-    if system == "both":
-        # ensure at least two NIC codes when using both
-        selected_pairs = select_top_codes_with_nic(indices, scores, total=5, min_nic=2)
-    else:
-        # NIC-only or NAICS-only: just take top 5 from filtered list
-        selected_pairs = list(zip(indices[:5], scores[:5]))
 
     suggestions = []
     for i, s in selected_pairs:
